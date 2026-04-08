@@ -1,4 +1,15 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8000/api';
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('codex_token');
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 /**
  * Ingest a repository into the CodEx backend
@@ -6,9 +17,7 @@ const API_BASE_URL = 'http://localhost:8000';
 export async function ingestRepo(repoUrl) {
   const response = await fetch(`${API_BASE_URL}/ingest`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ repo_url: repoUrl }),
   });
 
@@ -24,7 +33,9 @@ export async function ingestRepo(repoUrl) {
  * Check ingestion status
  */
 export async function getIngestionStatus(repoName) {
-  const response = await fetch(`${API_BASE_URL}/ingest/status/${encodeURIComponent(repoName)}`);
+  const response = await fetch(`${API_BASE_URL}/ingest/status/${encodeURIComponent(repoName)}`, {
+    headers: getAuthHeaders(),
+  });
   
   if (!response.ok) {
     throw new Error('Failed to get ingestion status');
@@ -37,7 +48,9 @@ export async function getIngestionStatus(repoName) {
  * Get all ingested repositories
  */
 export async function getRepos() {
-  const response = await fetch(`${API_BASE_URL}/repos`);
+  const response = await fetch(`${API_BASE_URL}/repos`, {
+    headers: getAuthHeaders(),
+  });
   
   if (!response.ok) {
     throw new Error('Failed to fetch repositories');
@@ -53,9 +66,7 @@ export function createQueryStream(question, repoName, onChunk, onDone, onError) 
   return new Promise((resolve, reject) => {
     fetch(`${API_BASE_URL}/query`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         question,
         repo_name: repoName,

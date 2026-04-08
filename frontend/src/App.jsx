@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ChatInput from './components/ChatInput';
 import ChatMessage from './components/ChatMessage';
+import Login from './components/Login';
 import { getRepos, createQueryStream } from './api';
-import { Code2, MessagesSquare } from 'lucide-react';
+import { useAuth } from './context/AuthContext';
+import { Code2, MessagesSquare, LogOut } from 'lucide-react';
 
-function App() {
+function MainApp() {
   const [repos, setRepos] = useState([]);
   const [selectedRepo, setSelectedRepo] = useState('');
   const [messages, setMessages] = useState({}); // { repoName: [msg1, msg2] }
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef(null);
+  const { user, logout } = useAuth();
 
   // Load repos on mount
   useEffect(() => {
@@ -153,6 +157,23 @@ function App() {
           ) : (
             <div className="text-sm font-medium text-slate-500">Select a repository</div>
           )}
+          
+          {/* User Profile / Logout */}
+          <div className="ml-auto flex items-center gap-4">
+            <div className="text-sm text-slate-300 hidden sm:block">
+              {user?.name}
+            </div>
+            {user?.picture && (
+              <img src={user.picture} alt="Profile" className="w-8 h-8 rounded-full border border-[var(--color-codex-border)]" />
+            )}
+            <button 
+              onClick={logout}
+              className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </header>
 
         {/* Messages List Area */}
@@ -201,6 +222,17 @@ function App() {
         
       </div>
     </div>
+  );
+}
+
+function App() {
+  const { user } = useAuth();
+
+  return (
+    <Routes>
+      <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+      <Route path="/*" element={user ? <MainApp /> : <Navigate to="/login" />} />
+    </Routes>
   );
 }
 
