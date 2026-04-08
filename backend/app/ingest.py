@@ -8,10 +8,13 @@ import logging
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from git import Repo as GitRepo
+
+from app.auth import get_current_user
+from app.models import User
 
 from app.config import CLONE_DIR
 from app.utils import (
@@ -55,12 +58,12 @@ class IngestStatusResponse(BaseModel):
     repo_name: str
 
 
-def _get_status_key(repo_name: str) -> str:
-    return repo_name
+def _get_status_key(user_id: int, repo_name: str) -> str:
+    return f"{user_id}:{repo_name}"
 
 
 @router.post("/ingest", response_model=IngestResponse)
-async def ingest_repository(request: IngestRequest):
+async def ingest_repository(request: IngestRequest, user: User = Depends(get_current_user)):
     """Clone a GitHub repository, chunk its code, embed, and store in ChromaDB."""
 
     # Parse repo URL
@@ -69,8 +72,9 @@ async def ingest_repository(request: IngestRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    collection_name = sanitize_collection_name(repo_name)
-    status_key = _get_status_key(repo_name)
+    sanitized_repo = sanitize_collection_name(repo_name)
+    collection_name = f"user_{user.id}_{sanitized_repo}"
+    status_key = _get_status_key(user.id, repo_name)
 
     # Check if already being ingested
     if status_key in _ingestion_status and _ingestion_status[status_key]["status"] == "processing":
@@ -199,9 +203,9 @@ async def ingest_repository(request: IngestRequest):
 
 
 @router.get("/ingest/status/{repo_name:path}", response_model=IngestStatusResponse)
-async def get_ingestion_status(repo_name: str):
+async def get_ingestion_status(repo_name: str, user: User = Depends(get_current_user)):
     """Check the ingestion status of a repository."""
-    status_key = _get_status_key(repo_name)
+    status_key = _get_status_key(user.id, repo_name)
     if status_key not in _ingestion_status:
         raise HTTPException(status_code=404, detail="No ingestion found for this repo")
     return IngestStatusResponse(**_ingestion_status[status_key])

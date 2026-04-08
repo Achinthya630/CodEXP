@@ -6,11 +6,14 @@ import json
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from google import genai
+
+from app.auth import get_current_user
+from app.models import User
 
 from app.config import GEMINI_API_KEY, LLM_MODEL, TOP_K_RESULTS
 from app.utils import sanitize_collection_name
@@ -79,26 +82,35 @@ class QueryResponse(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/query")
-async def query_repository(request: QueryRequest):
+async def query_repository(request: QueryRequest, user: User = Depends(get_current_user)):
     """
     RAG query endpoint. Embeds the question, retrieves relevant chunks,
     and streams the LLM answer via SSE.
     """
-    collection_name = sanitize_collection_name(request.repo_name)
-
-    # Verify collection exists and has data
+    sanitized = sanitize_collection_name(request.repo_name)
+    user_collection_name = f"user_{user.id}_{sanitized}"
+    
+    collection_name = None
     try:
-        collection = get_or_create_collection(collection_name)
-        count = collection.count()
-        if count == 0:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Repository '{request.repo_name}' has not been ingested yet.",
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {str(e)}")
+        col = get_or_create_collection(user_collection_name)
+        if col.count() > 0:
+            collection_name = user_collection_name
+    except Exception:
+        pass
+        
+    if not collection_name:
+        try:
+            col = get_or_create_collection(sanitized)
+            if col.count() > 0:
+                collection_name = sanitized
+        except Exception:
+            pass
+
+    if not collection_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository '{request.repo_name}' has not been ingested yet or you don't have access.",
+        )
 
     # ── Step 1: Embed the query ──────────────────────────────────────
     logger.info(f"Query: {request.question[:100]}...")
@@ -182,23 +194,33 @@ async def _stream_llm_response(
 # ── Non-streaming fallback (optional) ────────────────────────────────────────
 
 @router.post("/query/sync", response_model=QueryResponse)
-async def query_repository_sync(request: QueryRequest):
+async def query_repository_sync(request: QueryRequest, user: User = Depends(get_current_user)):
     """Non-streaming version of the query endpoint."""
 
-    collection_name = sanitize_collection_name(request.repo_name)
-
+    sanitized = sanitize_collection_name(request.repo_name)
+    user_collection_name = f"user_{user.id}_{sanitized}"
+    
+    collection_name = None
     try:
-        collection = get_or_create_collection(collection_name)
-        count = collection.count()
-        if count == 0:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Repository '{request.repo_name}' has not been ingested yet.",
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {str(e)}")
+        col = get_or_create_collection(user_collection_name)
+        if col.count() > 0:
+            collection_name = user_collection_name
+    except Exception:
+        pass
+        
+    if not collection_name:
+        try:
+            col = get_or_create_collection(sanitized)
+            if col.count() > 0:
+                collection_name = sanitized
+        except Exception:
+            pass
+
+    if not collection_name:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository '{request.repo_name}' has not been ingested yet or you don't have access.",
+        )
 
     query_embedding = await embed_query(request.question)
     results = query_collection(collection_name, query_embedding, n_results=TOP_K_RESULTS)

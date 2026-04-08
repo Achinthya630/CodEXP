@@ -14,6 +14,10 @@ from app.chroma_client import get_client, list_collections, get_or_create_collec
 from app.config import GEMINI_API_KEY
 from app.ingest import router as ingest_router
 from app.query import router as query_router
+from app.auth import router as auth_router, get_current_user
+from app.models import User
+from app.database import engine, Base
+from fastapi import Depends
 
 # ── Logging Setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -44,6 +48,9 @@ async def lifespan(app: FastAPI):
     collections = list_collections()
     logger.info(f"📚 Found {len(collections)} existing collection(s)")
 
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅ Database initialized")
+
     yield
 
     # Shutdown
@@ -69,8 +76,9 @@ app.add_middleware(
 )
 
 # ── Routers ──────────────────────────────────────────────────────────────────
-app.include_router(ingest_router, tags=["Ingestion"])
-app.include_router(query_router, tags=["Query"])
+app.include_router(auth_router, prefix="/api", tags=["Auth"])
+app.include_router(ingest_router, prefix="/api", tags=["Ingestion"])
+app.include_router(query_router, prefix="/api", tags=["Query"])
 
 
 # ── Health & Info Endpoints ──────────────────────────────────────────────────
@@ -98,20 +106,31 @@ async def health_check():
     )
 
 
-@app.get("/repos", response_model=ReposResponse)
-async def list_repos():
+@app.get("/api/repos", response_model=ReposResponse)
+async def list_repos(user: User = Depends(get_current_user)):
     """List all ingested repositories."""
     collections = list_collections()
     repos = []
+    user_prefix = f"user_{user.id}_"
+    
     for name in collections:
-        try:
-            col = get_or_create_collection(name)
-            count = col.count()
-            # Try to recover original repo name from collection metadata
-            display_name = name.replace("_", "/", 1)
-            repos.append(RepoInfo(name=display_name, chunks=count))
-        except Exception:
-            repos.append(RepoInfo(name=name, chunks=0))
+        is_global = not name.startswith("user_")
+        is_user = name.startswith(user_prefix)
+        
+        if is_global or is_user:
+            try:
+                col = get_or_create_collection(name)
+                count = col.count()
+                
+                # Recover display name
+                if is_user:
+                    display_name = name[len(user_prefix):].replace("_", "/", 1)
+                else:
+                    display_name = name.replace("_", "/", 1)
+                    
+                repos.append(RepoInfo(name=display_name, chunks=count))
+            except Exception:
+                pass
 
     return ReposResponse(repos=repos)
 
