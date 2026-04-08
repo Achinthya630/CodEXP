@@ -39,3 +39,6 @@ build/
 # Application Specific Folders
 chroma_data/
 temp_repos/
+
+
+backend.db
